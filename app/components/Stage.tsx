@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { XmaxX21MainVideoView } from "../lib/model";
 import type { UiState } from "../lib/types";
 import type { SentWindowStore } from "../lib/pointerFrames";
@@ -114,6 +114,24 @@ export function Stage({
 
   const live = ui.generating && !cover;
 
+  // The source inset takes the source's own shape: a landscape webcam shows
+  // landscape, a portrait image portrait. Until a size is known, guess from
+  // the kind of source.
+  const [srcSize, setSrcSize] = useState<{ w: number; h: number } | null>(null);
+  const handleSourceFrame = useCallback(
+    (size: { w: number; h: number } | null) => {
+      setSrcSize(size);
+      onSourceFrame(size);
+    },
+    [onSourceFrame],
+  );
+  const srcAspect = srcSize
+    ? srcSize.w / srcSize.h
+    : source.kind === "webcam" || source.kind === "camera-off"
+      ? 16 / 9
+      : 9 / 16;
+  const landscape = srcAspect >= 1;
+
   return (
     <section className="relative min-h-[60vh] flex-1 overflow-hidden rounded-lg border border-zinc-800 bg-black lg:min-h-0">
       <div ref={outputRef} className="absolute inset-0">
@@ -146,17 +164,20 @@ export function Stage({
         </span>
       )}
 
-      <div className="absolute right-3 bottom-12 z-10 aspect-[9/16] w-24 overflow-hidden rounded-md border border-zinc-700 bg-black shadow-lg lg:w-32">
+      <div
+        style={{ aspectRatio: String(srcAspect) }}
+        className={`absolute right-3 bottom-12 z-10 overflow-hidden rounded-md border border-zinc-700 bg-black shadow-lg ${landscape ? "w-40 lg:w-56" : "w-24 lg:w-32"}`}
+      >
         {source.kind === "video" ? (
-          <VideoSource videoUrl={source.url} onTrack={onTrack} onFrame={onSourceFrame} />
+          <VideoSource videoUrl={source.url} onTrack={onTrack} onFrame={handleSourceFrame} />
         ) : source.kind === "webcam" ? (
-          <WebcamSource onTrack={onTrack} onFrame={onSourceFrame} onError={onSourceError} />
+          <WebcamSource onTrack={onTrack} onFrame={handleSourceFrame} onError={onSourceError} />
         ) : source.kind === "camera-off" ? (
           <div className="absolute inset-0 flex items-center justify-center p-2 text-center text-[10px] text-zinc-500">
             The camera turns on when you press Start.
           </div>
         ) : (
-          <ImageSource imageUrl={source.url} onTrack={onTrack} onFrame={onSourceFrame} />
+          <ImageSource imageUrl={source.url} onTrack={onTrack} onFrame={handleSourceFrame} />
         )}
         <span className="absolute inset-x-0 bottom-0 bg-black/70 px-1 py-0.5 text-center font-mono text-[9px] leading-tight text-zinc-300">
           {source.kind === "video"
