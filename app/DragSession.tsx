@@ -579,7 +579,7 @@ function Workspace() {
         <div className="min-w-0">
           <h1 className="text-base font-semibold tracking-tight">
             <a
-              href="https://www.reactor.inc/models/xmax-x2-1"
+              href="https://github.com/reactor-team/create-reactor-app/tree/main/templates/xmax-x2-1"
               target="_blank"
               rel="noreferrer"
               className="underline decoration-zinc-600 underline-offset-4 hover:decoration-zinc-300"
