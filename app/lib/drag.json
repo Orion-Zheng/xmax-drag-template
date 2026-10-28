@@ -1,0 +1,32 @@
+{
+  "examples": [
+    {
+      "id": "drag-anime",
+      "titleEn": "Anime girl: three-point drag",
+      "prompt": "",
+      "thumb": "drag/drag-anime/thumb.jpg",
+      "refs": ["drag/drag-anime/reference.jpg"],
+      "drag": {
+        "source": "drag/drag-anime/source.mp4",
+        "track": "drag/drag-anime/track.json",
+        "points": 3,
+        "fps": 24,
+        "frames": 97
+      }
+    },
+    {
+      "id": "drag-x2-man",
+      "titleEn": "Man: one-point drag",
+      "prompt": "视频中角色跟随拖拽轨迹运动",
+      "thumb": "drag/drag-x2-man/thumb.jpg",
+      "refs": ["drag/drag-x2-man/reference.jpg"],
+      "drag": {
+        "source": "drag/drag-x2-man/source.mp4",
+        "track": "drag/drag-x2-man/track.json",
+        "points": 1,
+        "fps": 24,
+        "frames": 97
+      }
+    }
+  ]
+}
