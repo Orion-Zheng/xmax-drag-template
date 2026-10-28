@@ -61,7 +61,7 @@ lifts it, and the stage still waits for the output's next presented frame
 
 No drag is sent on Start. The person drags on the output by hand. For a multi-point example the
 Drag panel offers **Try multi-point drag**, which replays the recorded `track.json` with
-`setPointers`; it is never on by default. A **Replay speed** slider (0.1× to 1.5×, 0.5× on load) scales the replay clock; changing it
+`setPointers`; it is never on by default. A **Replay speed** slider (0.1× to 1.5×, 0.75× on load) scales the replay clock; changing it
 mid-replay keeps the position (`DragReplay.tsx`, `DEFAULT_REPLAY_SPEED`). When no multi-point example is running, the panel
 suggests trying it on the first example (the anime girl).
 

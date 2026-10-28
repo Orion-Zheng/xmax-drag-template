@@ -72,7 +72,7 @@ function fitPoints(pts: DragPoint[], from: Size, to: Size): DragPoint[] {
 }
 
 /** Replay speed on load: the recordings read too fast at their own pace. */
-const DEFAULT_REPLAY_SPEED = 0.5;
+const DEFAULT_REPLAY_SPEED = 0.75;
 const MIN_REPLAY_SPEED = 0.1;
 const MAX_REPLAY_SPEED = 1.5;
 
