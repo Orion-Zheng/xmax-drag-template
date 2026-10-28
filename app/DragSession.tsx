@@ -7,7 +7,7 @@
 // on the output to steer; a multi-point example can also replay its recorded
 // drag on request, and a video example's prompt and reference can be changed
 // live. Reset clears the model for the next run.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   REACTOR_API_URL,
   XmaxX21Provider,
@@ -402,10 +402,40 @@ function Workspace() {
       ? "Connecting…"
       : status === "waiting"
         ? "Waiting for a GPU…"
-        : "Connect at the top of the page, then start an example."
+        : "Connect, then start an example."
     : busy || running
         ? "Starting…"
         : "Pick an example and press Start.";
+
+  // The output area shows the one next step until a run is producing:
+  // key → Connect → Start. The header keeps the same controls, small.
+  const stepCard = (step: string, title: string, body: string, button: ReactNode) => (
+    <div className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-950/90 p-6 shadow-xl">
+      <span className="text-[10px] uppercase tracking-wider text-zinc-500">{step}</span>
+      <h2 className="mt-1 text-lg font-semibold tracking-tight text-zinc-100">{title}</h2>
+      <p className="mt-1 text-sm text-zinc-400">{body}</p>
+      <div className="mt-4">{button}</div>
+    </div>
+  );
+  const action: ReactNode = !apiKey ? (
+    <ApiKeyBar variant="panel" />
+  ) : status === "disconnected" ? (
+    stepCard(
+      "Step 2 of 3",
+      "Connect to XMAX X2.1",
+      "Opens a session on a GPU. It runs on your credit until you disconnect or leave the page.",
+      <Button disabled={busy} onClick={connectNow}>
+        Connect
+      </Button>,
+    )
+  ) : ready && !busy && !running ? (
+    stepCard(
+      "Step 3 of 3",
+      `Start “${selected.titleEn}”`,
+      "Pick another example on the right at any time. Once it runs, press and drag on the output.",
+      <Button onClick={start}>Start</Button>,
+    )
+  ) : null;
 
   return (
     <>
@@ -450,6 +480,7 @@ function Workspace() {
           <Stage
             ui={ui}
             hint={hint}
+            action={action}
             source={source}
             blank={blank}
             onTrack={onTrack}

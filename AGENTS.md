@@ -22,6 +22,11 @@ product. Keep it working while you do.
 
 ## How the app drives the model
 
+Until a run is producing, the output area shows the one next step, large: paste the API key (with
+"See how to get one" opening the step-by-step guide) → Connect → Start the selected example
+(`DragSession.tsx`, `action`; `ApiKeyBar` with `variant="panel"`). The header keeps the same
+controls, small.
+
 **Connect** in the header opens the session (`app/DragSession.tsx`, `connectNow`): with no key
 entered it shows a line asking for one and does not connect; otherwise it connects and waits for
 status `ready`. Examples can be started only while connected. The header has one button that switches

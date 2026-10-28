@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { XmaxX21MainVideoView } from "../lib/model";
 import type { UiState } from "../lib/types";
 import type { SentWindowStore } from "../lib/pointerFrames";
@@ -39,10 +39,13 @@ export function Stage({
   sentWindow,
   replayAspect,
   onDragHold,
+  action,
 }: {
   ui: UiState;
   /** Shown on the cover. */
   hint: string | null;
+  /** The next step, shown large on the cover in place of the hint. */
+  action?: ReactNode;
   source: StageSource;
   /** Hide the output until the new run is producing. */
   blank: boolean;
@@ -110,7 +113,7 @@ export function Stage({
         <div className="absolute inset-0 bg-black">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={source.poster} alt="" className="absolute inset-0 h-full w-full object-contain opacity-25" />
-          {hint && (
+          {hint && !action && (
             <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
               <p className="rounded bg-black/60 px-3 py-1.5 text-sm text-zinc-300">{hint}</p>
             </div>
@@ -124,6 +127,9 @@ export function Stage({
         store={sentWindow}
         onDragHold={onDragHold}
       />
+      {cover && action && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center p-6">{action}</div>
+      )}
       {live && (
         <span className="pointer-events-none absolute top-2 right-2 rounded bg-black/60 px-1.5 py-0.5 font-mono text-xs text-zinc-400">
           drag to steer

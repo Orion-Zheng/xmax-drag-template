@@ -9,7 +9,10 @@ const KEYS_URL = "https://www.reactor.inc/account/api-keys";
 // The API key field, inline in the header; the rest of the app is usable
 // around it. Submitting mints one token with the key, so a mistyped key is
 // caught here rather than on the first call; that token is then reused.
-export function ApiKeyBar() {
+//
+// `variant="panel"` is the large first step shown in the empty output area
+// while no key is set; it renders nothing once a key is in place.
+export function ApiKeyBar({ variant = "bar" }: { variant?: "bar" | "panel" } = {}) {
   const apiKey = useApiKey();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
@@ -44,6 +47,55 @@ export function ApiKeyBar() {
       Get an API key
     </button>
   );
+
+  if (variant === "panel") {
+    if (apiKey) return null;
+    return (
+      <div className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-950/90 p-6 text-left shadow-xl">
+        <span className="text-[10px] uppercase tracking-wider text-zinc-500">Step 1 of 3</span>
+        <h2 className="mt-1 text-lg font-semibold tracking-tight text-zinc-100">
+          Paste your Reactor API key
+        </h2>
+        <p className="mt-1 text-sm text-zinc-400">
+          Sessions run on your own Reactor credit. The key stays in this browser tab.
+        </p>
+        <form onSubmit={onSubmit} className="mt-4 flex gap-2">
+          <label htmlFor="reactor-api-key-panel" className="sr-only">
+            Reactor API key
+          </label>
+          <input
+            id="reactor-api-key-panel"
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="rk_..."
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-black/60 px-3 py-2 font-mono text-sm text-zinc-200 outline-none focus:border-zinc-500"
+          />
+          <button
+            type="submit"
+            disabled={checking || !value.trim()}
+            className="shrink-0 rounded-md bg-brand px-4 py-2 text-sm font-medium text-brand-fg disabled:opacity-50"
+          >
+            {checking ? "Checking…" : "Use key"}
+          </button>
+        </form>
+        {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
+        <p className="mt-4 text-sm text-zinc-400">
+          Don&apos;t have a key?{" "}
+          <button
+            type="button"
+            onClick={() => setGuideOpen(true)}
+            className="text-brand underline"
+          >
+            See how to get one
+          </button>
+        </p>
+        {guideOpen && <KeyGuide onClose={() => setGuideOpen(false)} />}
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-w-0 flex-col gap-1">
