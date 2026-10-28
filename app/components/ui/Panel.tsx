@@ -11,7 +11,7 @@ interface PanelProps {
 }
 
 /** The one sidebar-card chrome. Bakes in p-3; callers needing other padding
- *  (the clip modal) compose PANEL directly instead. */
+ *  (a modal, say) compose PANEL directly instead. */
 export function Panel({ label, action, className, children }: PanelProps) {
   return (
     <div className={cn(PANEL, "p-3", className)}>

@@ -15,13 +15,13 @@ import {
 import { Button, Panel, cn } from "./ui";
 import type { ManualDrag } from "./useManualDrag";
 
-// Replays a drag example's recorded pointer trajectory against its source
-// clip.
+// Replays a drag example's recorded pointer trajectory over the still image
+// streamed as the source.
 //
-// The track holds one list of points per source frame. The frame index is read
-// from the playing clip itself (frame = floor(currentTime * fps)), so the
-// points stay locked to the frames the model is receiving and wrap around when
-// the clip loops. Each time the frame f changes, the points of frames f-3..f
+// The track holds one list of points per frame. Every frame of a still is the
+// same picture, so a clock times the replay: frame = floor(elapsed * fps)
+// modulo the track length, elapsed counted from start(). Each time the frame f
+// changes, the points of frames f-3..f
 // are sent as one window,
 // `set_pointers({ frames: [pts(f-3), pts(f-2), pts(f-1), pts(f)] })`
 // (normalised 0..1, empty = no drag on that frame; see lib/pointerFrames), so
@@ -29,7 +29,7 @@ import type { ManualDrag } from "./useManualDrag";
 // positions.
 //
 // A manual drag on the output takes over while it is held (`hold(true)`): the
-// replay keeps tracking the clip but sends nothing; on release the current
+// replay's clock keeps running but sends nothing; on release the current
 // window is sent again.
 export type ReplayPhase = "off" | "running" | "held" | "failed";
 
@@ -70,12 +70,12 @@ function fitPoints(pts: DragPoint[], from: Size, to: Size): DragPoint[] {
   ]);
 }
 
-type FrameVideo = HTMLVideoElement & {
-  requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number }) => void) => number;
-  cancelVideoFrameCallback?: (id: number) => void;
-};
-
-export function useDragReplay(drag: DragSpec | null, store: SentWindowStore) {
+/** `still`: the streamed still's frame size (from ImageSource), null until it is drawn. */
+export function useDragReplay(
+  drag: DragSpec | null,
+  still: Size | null,
+  store: SentWindowStore,
+) {
   const { setPointers } = useXmaxX21();
   const [track, setTrack] = useState<DragTrack | null>(null);
   const [trackError, setTrackError] = useState<string | null>(null);
@@ -88,7 +88,10 @@ export function useDragReplay(drag: DragSpec | null, store: SentWindowStore) {
   const [failure, setFailure] = useState<string | null>(null);
   const [frame, setFrame] = useState<number | null>(null);
 
-  const videoRef = useRef<FrameVideo | null>(null);
+  const stillRef = useRef<Size | null>(still);
+  stillRef.current = still;
+  // The still the running replay is mapped against (fixed at start).
+  const replayStillRef = useRef<Size | null>(null);
   const trackRef = useRef<DragTrack | null>(null);
   // The spec the loaded track belongs to, so a caller can wait for the right one.
   const loadedForRef = useRef<DragSpec | null>(null);
@@ -119,13 +122,11 @@ export function useDragReplay(drag: DragSpec | null, store: SentWindowStore) {
     };
   }, [drag]);
 
-  const setVideo = useCallback((v: HTMLVideoElement | null) => {
-    videoRef.current = v as FrameVideo | null;
-  }, []);
-
-  // The track is in the source clip's frame; set_pointers takes the output
-  // frame. A point goes through the same fit the server applies to the source
-  // (fitPoints). The output size arrives in state_update once the run has
+  // The track is in the frame of the clip it was recorded on; set_pointers
+  // takes the output frame. A point is first placed in the still's frame by
+  // the same fit, treating the recording as the still fitted to its size (the
+  // still is the recording's opening picture, framed about the same), then
+  // goes through the fit the server applies from source to output (fitPoints). The output size arrives in state_update once the run has
   // started; until then nothing is sent (the dots are still drawn), and when it
   // arrives the current frame is sent again, mapped.
   const outSizeRef = useRef<Size | null>(null);
@@ -141,8 +142,11 @@ export function useDragReplay(drag: DragSpec | null, store: SentWindowStore) {
   const toOutput = useCallback((pts: DragPoint[]): DragPoint[] => {
     const t = trackRef.current;
     const out = outSizeRef.current;
-    if (!t || !out) return pts;
-    return fitPoints(pts, { w: t.width, h: t.height }, out);
+    if (!t) return pts;
+    const control = { w: t.width, h: t.height };
+    const st = replayStillRef.current;
+    const inSource = st ? fitPoints(pts, control, st) : pts;
+    return out ? fitPoints(inSource, st ?? control, out) : inSource;
   }, []);
 
   const halt = useCallback(() => {
@@ -167,12 +171,11 @@ export function useDragReplay(drag: DragSpec | null, store: SentWindowStore) {
 
   const start = useCallback(async () => {
     const t = trackRef.current;
-    const v = videoRef.current;
-    if (!t || !v) throw new Error("The drag clip or its track is not loaded yet.");
+    const st = stillRef.current;
+    if (!t || !st) throw new Error("The source image or the drag track is not loaded yet.");
     halt();
     setFailure(null);
-    v.currentTime = 0;
-    await v.play().catch(() => {});
+    replayStillRef.current = st;
     setPhase("running");
 
     let stopped = false;
@@ -194,31 +197,17 @@ export function useDragReplay(drag: DragSpec | null, store: SentWindowStore) {
       if (phaseRef.current !== "held") store.set({ window: w, from: "replay", sent: live });
       if (live) void setPointers(framesPayload(w));
     };
-    const onTime = (time: number) =>
-      onFrameIndex(Math.min(t.frames.length - 1, Math.max(0, Math.floor(time * t.fps))));
-    if (v.requestVideoFrameCallback) {
-      const step = (_now: number, meta: { mediaTime: number }) => {
-        if (stopped) return;
-        onTime(meta.mediaTime);
-        handle = v.requestVideoFrameCallback!(step);
-      };
-      handle = v.requestVideoFrameCallback(step);
-      cancelRef.current = () => {
-        stopped = true;
-        v.cancelVideoFrameCallback?.(handle);
-      };
-    } else {
-      const step = () => {
-        if (stopped) return;
-        onTime(v.currentTime);
-        handle = requestAnimationFrame(step);
-      };
+    const t0 = performance.now();
+    const step = (now: number) => {
+      if (stopped) return;
+      onFrameIndex(Math.floor((Math.max(0, now - t0) / 1000) * t.fps) % t.frames.length);
       handle = requestAnimationFrame(step);
-      cancelRef.current = () => {
-        stopped = true;
-        cancelAnimationFrame(handle);
-      };
-    }
+    };
+    handle = requestAnimationFrame(step);
+    cancelRef.current = () => {
+      stopped = true;
+      cancelAnimationFrame(handle);
+    };
   }, [halt, toOutput, store, setPointers]);
 
   /** A manual drag is held (true) or released (false). Returns true when the
@@ -248,7 +237,7 @@ export function useDragReplay(drag: DragSpec | null, store: SentWindowStore) {
 
   const isLoadedFor = useCallback((spec: DragSpec) => loadedForRef.current === spec, []);
 
-  return { track, isLoadedFor, trackError, phase, failure, frame, setVideo, start, stop, hold, fail };
+  return { track, isLoadedFor, trackError, phase, failure, frame, start, stop, hold, fail };
 }
 
 export type DragReplay = ReturnType<typeof useDragReplay>;
@@ -287,14 +276,14 @@ export function DragPanel({
   return (
     <Panel label="Drag">
       <p className="text-xs text-zinc-400">
-        {running ? "Press and drag" : "Once it runs, press and drag"} on the output to steer the
-        character. Your drag pauses the recorded one while you hold it.
+        {running ? "Press and drag" : "Once an example is running, press and drag"} on the output
+        to steer the character.
       </p>
-      {drag && (
+      {drag && drag.points > 1 && (
         <div className="mt-2 flex gap-2">
           {replaying ? (
             <Button size="sm" variant="secondary" className="flex-1" onClick={() => replay.stop(true)}>
-              Stop and clear drag
+              Stop multi-point drag
             </Button>
           ) : (
             <Button
@@ -303,10 +292,22 @@ export function DragPanel({
               disabled={!running || !replay.track}
               onClick={() => replay.start().catch((err: unknown) => onError(String(err)))}
             >
-              Replay recorded drag
+              Try multi-point drag
             </Button>
           )}
         </div>
+      )}
+      {(!drag || drag.points === 1) && (
+        <p className="mt-2 text-[11px] text-zinc-500">
+          New here? Start the first example, the anime girl, and press “Try multi-point drag” to see
+          several points steer her at once.
+        </p>
+      )}
+      {drag && drag.points > 1 && (
+        <p className="mt-1 text-[11px] text-zinc-500">
+          Replays a recorded {drag.points}-point drag over the image. Your own drag pauses it while
+          you hold.
+        </p>
       )}
       <p className="mt-2 font-mono text-[11px]">
         <span

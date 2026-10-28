@@ -1,10 +1,11 @@
 "use client";
 
-// The session half of the page. Pick an example: the page connects (with the visitor's
-// own API key), resets the model, sends the example's reference image and
-// prompt, streams its clip as the `source` track and replays its recorded
-// drag over it with set_pointers. Press and drag on the output to steer by
-// hand at any time.
+// The page. Connect (with the visitor's own API key) from the header, then
+// Start an example: the page resets the model, sends the example's reference
+// image and prompt, and streams its starting image, as a still, as the
+// `source` track. Press and
+// drag on the output to steer; a multi-point example can also replay its
+// recorded drag on request. Reset clears the model for the next run.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   REACTOR_API_URL,
@@ -21,7 +22,8 @@ import { DEFAULT_UI_STATE, type UiState } from "./lib/types";
 import { reduce } from "./lib/state";
 import { createSentWindowStore } from "./lib/pointerFrames";
 import { fileFromUrl, useReferenceUpload } from "./lib/reference";
-import { StatusBadge } from "./components/StatusBadge";
+import { ApiKeyBar } from "./components/ApiKeyBar";
+import { ConnectBar } from "./components/ConnectBar";
 import { CommandError } from "./components/CommandError";
 import { Stage } from "./components/Stage";
 import { DragPanel, useDragReplay } from "./components/DragReplay";
@@ -81,17 +83,19 @@ function Workspace() {
   const [needKey, setNeedKey] = useState(false);
   const [stageCleared, setStageCleared] = useState(false);
 
-  // The source clip's track is published only after the model has confirmed a
+  // The source still's track is published only after the model has confirmed a
   // reset in this session, so no frame ever meets a previous session's state.
   const [sourceTrack, setSourceTrack] = useState<MediaStreamTrack | null>(null);
+  // The streamed still's frame size: maps and times the recorded drag.
+  const [stillFrame, setStillFrame] = useState<{ w: number; h: number } | null>(null);
   const [sessionClean, setSessionClean] = useState(false);
   const publishError = useSourcePublisher(sessionClean ? sourceTrack : null);
 
   const sentWindow = useMemo(createSentWindowStore, []);
-  const replay = useDragReplay(selected?.drag ?? null, sentWindow);
+  const replay = useDragReplay(selected?.drag ?? null, stillFrame, sentWindow);
   const manual = useManualDrag(sentWindow);
   const refUpload = useReferenceUpload();
-  const { stop: stopReplay, fail: failReplay, isLoadedFor, start: startReplay } = replay;
+  const { stop: stopReplay, fail: failReplay } = replay;
   const { fail: failManual } = manual;
 
   const [commandError, setCommandError] = useState<string | null>(null);
@@ -219,23 +223,28 @@ function Workspace() {
     [showError],
   );
 
-  // reset -> clean state_update -> reference image -> prompt -> (the source
-  // clip is published once the reset is confirmed) -> replay the recorded drag.
-  const run = (example: DragExample) => {
+  const connectNow = () => {
     if (!getApiKey()) {
       setNeedKey(true);
       return;
     }
     setNeedKey(false);
-    setSelected(example);
     void runStep(async () => {
       await ensureConnected();
+      return "idle";
+    });
+  };
+
+  // reset -> clean state_update -> reference image -> prompt. The source still
+  // (the same image) is published once the reset is confirmed. No drag is sent until the
+  // person drags, or asks for the recorded multi-point drag.
+  const start = (example: DragExample) => {
+    setSelected(example);
+    void runStep(async () => {
       await cleanReset();
       const ok = await refUpload.apply(await fileFromUrl(media(example.refs[0])));
       if (!ok) return "idle";
       await setPrompt({ prompt: example.prompt });
-      await waitFor(() => isLoadedFor(example.drag), 10_000, "The drag track did not load.");
-      await startReplay();
       return "running";
     });
   };
@@ -272,89 +281,133 @@ function Workspace() {
   }, []);
 
   const busy = phase === "busy";
-  const hint = !selected
-    ? "Pick an example to start."
-    : busy
-      ? status === "connecting"
-        ? "Connecting…"
-        : status === "waiting"
-          ? "Waiting for a GPU…"
-          : "Starting…"
-      : phase === "running"
-        ? "Waiting for the first frames…"
-        : "Stopped. Pick an example to run it again.";
+  const ready = status === "ready";
+  const hint = !ready
+    ? status === "connecting"
+      ? "Connecting…"
+      : status === "waiting"
+        ? "Waiting for a GPU…"
+        : "Connect at the top of the page, then start an example."
+    : !selected
+      ? "Pick an example and press Start."
+      : busy
+        ? "Starting…"
+        : phase === "running"
+          ? "Running. Press and drag on the output to steer the character."
+          : "Reset. Press Start to run an example again.";
 
   return (
-    <main className="flex flex-1 flex-col gap-4 p-4 lg:min-h-0 lg:flex-row lg:gap-6 lg:p-6">
-      <section className="flex min-h-0 flex-col lg:min-w-0 lg:flex-1">
-        <Stage
-          ui={ui}
-          hint={hint}
-          videoUrl={selected ? media(selected.drag.source) : null}
-          cleared={stageCleared}
-          onTrack={setSourceTrack}
-          onVideo={replay.setVideo}
-          manual={manual}
-          sentWindow={sentWindow}
-          replayAspect={replay.track ? replay.track.width / replay.track.height : null}
-          onDragHold={replay.hold}
-        />
-      </section>
-      <aside className="flex w-full flex-col gap-4 lg:min-h-0 lg:w-80 lg:shrink-0 lg:overflow-y-auto">
-        <Panel label="Examples">
-          <div className="grid grid-cols-2 gap-2">
-            {EXAMPLES.map((ex) => (
-              <button
-                key={ex.id}
-                type="button"
-                disabled={busy}
-                onClick={() => run(ex)}
-                className={cn(
-                  "overflow-hidden rounded-md border text-left transition disabled:opacity-60",
-                  selected?.id === ex.id
-                    ? "border-brand"
-                    : "border-zinc-800 hover:border-zinc-600",
-                )}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={media(ex.thumb)} alt="" className="aspect-[3/4] w-full object-cover" />
-                <span className="block px-2 py-1.5 text-xs text-zinc-200">{ex.titleEn}</span>
-                <span className="block px-2 pb-1.5 text-[11px] text-zinc-500">
-                  {ex.drag.points} point{ex.drag.points > 1 ? "s" : ""} ·{" "}
-                  {(ex.drag.frames / ex.drag.fps).toFixed(1)} s loop
-                </span>
-              </button>
-            ))}
-          </div>
-          {needKey && (
-            <p className="mt-2 text-xs text-amber-300">
-              Paste your Reactor API key at the top of the page first.
-            </p>
+    <>
+      <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b border-zinc-800 px-4 py-3 lg:px-6">
+        <div className="min-w-0">
+          <h1 className="text-base font-semibold tracking-tight">
+            <a
+              href="https://www.reactor.inc/models/xmax-x2-1"
+              target="_blank"
+              rel="noreferrer"
+              className="underline decoration-zinc-600 underline-offset-4 hover:decoration-zinc-300"
+            >
+              XMAX X2.1
+            </a>{" "}
+            Drag · Reactor template
+          </h1>
+          <p className="text-xs text-zinc-400">
+            Drag points on a video and the generated character follows.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <ApiKeyBar />
+          <ConnectBar busy={busy} onConnect={connectNow} onDisconnect={() => void leave()} />
+        </div>
+      </header>
+      {needKey && (
+        <p className="border-b border-zinc-800 px-4 py-2 text-xs text-amber-300 lg:px-6">
+          Paste your Reactor API key at the top of the page first, then press Connect.
+        </p>
+      )}
+      <main className="flex flex-1 flex-col gap-4 p-4 lg:min-h-0 lg:flex-row lg:gap-6 lg:p-6">
+        <section className="flex min-h-0 flex-col lg:min-w-0 lg:flex-1">
+          <Stage
+            ui={ui}
+            hint={hint}
+            imageUrl={selected ? media(selected.refs[0]) : null}
+            cleared={stageCleared}
+            onTrack={setSourceTrack}
+            onStillFrame={setStillFrame}
+            manual={manual}
+            sentWindow={sentWindow}
+            replayAspect={
+              stillFrame
+                ? stillFrame.w / stillFrame.h
+                : replay.track
+                  ? replay.track.width / replay.track.height
+                  : null
+            }
+            onDragHold={replay.hold}
+          />
+        </section>
+        <aside className="flex w-full flex-col gap-4 lg:min-h-0 lg:w-80 lg:shrink-0 lg:overflow-y-auto">
+          <Panel label="Examples">
+            {!ready && <p className="mb-2 text-xs text-zinc-500">Connect first to start an example.</p>}
+            <div className="grid grid-cols-2 gap-2">
+              {EXAMPLES.map((ex) => {
+                const current = selected?.id === ex.id;
+                return (
+                  <div
+                    key={ex.id}
+                    className={cn(
+                      "overflow-hidden rounded-md border",
+                      current ? "border-brand" : "border-zinc-800",
+                      !ready && "opacity-60",
+                    )}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={media(ex.thumb)} alt="" className="aspect-[3/4] w-full object-cover" />
+                    <span className="block px-2 pt-1.5 text-xs text-zinc-200">{ex.titleEn}</span>
+                    <span className="block px-2 text-[11px] text-zinc-500">
+                      {ex.drag.points > 1 ? `${ex.drag.points}-point drag` : "1-point drag"}
+                    </span>
+                    <div className="p-2">
+                      {current && phase === "running" ? (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="w-full"
+                          disabled={!ready || busy}
+                          onClick={() => void stop()}
+                        >
+                          Reset
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          className="w-full"
+                          disabled={!ready || busy}
+                          onClick={() => start(ex)}
+                        >
+                          {busy && current ? "Starting…" : "Start"}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Panel>
+          {commandError && (
+            <CommandError message={commandError} onDismiss={() => setCommandError(null)} />
           )}
-          <Button
-            variant="secondary"
-            size="sm"
-            className="mt-3 w-full"
-            disabled={busy || phase !== "running"}
-            onClick={() => void stop()}
-          >
-            {busy ? "Working…" : "Stop"}
-          </Button>
-        </Panel>
-        {commandError && (
-          <CommandError message={commandError} onDismiss={() => setCommandError(null)} />
-        )}
-        {publishError && <p className="text-xs text-red-400">Source: {publishError}</p>}
-        <DragPanel
-          drag={selected?.drag ?? null}
-          replay={replay}
-          manual={manual}
-          store={sentWindow}
-          running={phase === "running"}
-          onError={showError}
-        />
-        <StatusBadge onDisconnect={() => void leave()} />
-      </aside>
-    </main>
+          {publishError && <p className="text-xs text-red-400">Source: {publishError}</p>}
+          <DragPanel
+            drag={selected?.drag ?? null}
+            replay={replay}
+            manual={manual}
+            store={sentWindow}
+            running={phase === "running"}
+            onError={showError}
+          />
+        </aside>
+      </main>
+    </>
   );
 }

@@ -1,12 +1,11 @@
-// The drag examples. Each one is a source clip streamed into the model, a
-// reference image (the clip's opening picture) and a recorded pointer
-// trajectory replayed over the clip. Metadata lives in drag.json; the media
-// in public/ex/drag/<id>/ (source.mp4, reference.jpg, thumb.jpg, track.json).
+// The drag examples. Each one is a starting image, streamed into the model as
+// a still `source` and also sent as the reference image, plus a recorded
+// pointer trajectory that can be replayed over it. Metadata lives in
+// drag.json; the media in public/ex/drag/<id>/ (reference.jpg, thumb.jpg,
+// track.json).
 import drag from "./drag.json";
 
 export interface DragSpec {
-  /** The source clip, streamed into the model as-is. */
-  source: string;
   /** track.json: { fps, width, height, frames: [[[x, y], ...] per frame] }. */
   track: string;
   /** Most points on any frame. */
@@ -17,7 +16,7 @@ export interface DragSpec {
 
 export interface DragTrack {
   fps: number;
-  /** Size of the control video the points were measured in. */
+  /** Size of the frame the points were recorded in. */
   width: number;
   height: number;
   /** Per source frame: pointer positions, normalised 0..1; [] = no drag. */

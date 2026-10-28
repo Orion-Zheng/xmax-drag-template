@@ -5,20 +5,20 @@ import type { UiState } from "../lib/types";
 import type { SentWindowStore } from "../lib/pointerFrames";
 import { PointerOverlay } from "./PointerOverlay";
 import type { ManualDrag } from "./useManualDrag";
-import { VideoSource } from "./VideoSource";
+import { ImageSource } from "./ImageSource";
 
-// The stage: the model's output fills it, and the clip being streamed into the
-// model (the `source` track) plays in a corner inset. The output carries the
+// The stage: the model's output fills it, and the still image being streamed
+// into the model (the `source` track) sits in a corner inset. The output carries the
 // drag overlay: press and drag on it to steer the character (set_pointers,
 // normalised to the output frame). The window last sent, by hand or replayed,
 // is drawn on it.
 export function Stage({
   ui,
   hint,
-  videoUrl,
+  imageUrl,
   cleared,
   onTrack,
-  onVideo,
+  onStillFrame,
   manual,
   sentWindow,
   replayAspect,
@@ -27,14 +27,14 @@ export function Stage({
   ui: UiState;
   /** Shown over the output while it is not generating. */
   hint: string | null;
-  /** The source clip; null before an example is picked. */
-  videoUrl: string | null;
+  /** The source image (a still); null before an example is picked. */
+  imageUrl: string | null;
   // After a reset the WebRTC <video> would freeze on the last received frame
   // (the model emits nothing new); cover it until generation runs again.
   cleared: boolean;
   onTrack: (track: MediaStreamTrack | null) => void;
-  /** The source clip's <video> element, which times the replay. */
-  onVideo: (video: HTMLVideoElement | null) => void;
+  /** The streamed still's frame size, which maps the replay. */
+  onStillFrame: (size: { w: number; h: number } | null) => void;
   manual: ManualDrag;
   sentWindow: SentWindowStore;
   /** Aspect to place the drawn window in until the output size is known. */
@@ -67,11 +67,11 @@ export function Stage({
         </span>
       )}
 
-      {videoUrl && (
+      {imageUrl && (
         <div className="absolute right-3 bottom-12 z-10 aspect-[9/16] w-24 overflow-hidden rounded-md border border-zinc-700 bg-black shadow-lg lg:w-32">
-          <VideoSource videoUrl={videoUrl} onTrack={onTrack} onVideo={onVideo} />
+          <ImageSource imageUrl={imageUrl} onTrack={onTrack} onFrame={onStillFrame} />
           <span className="absolute inset-x-0 bottom-0 bg-black/70 px-1 py-0.5 text-center font-mono text-[9px] leading-tight text-zinc-300">
-            source clip
+            source image
           </span>
         </div>
       )}

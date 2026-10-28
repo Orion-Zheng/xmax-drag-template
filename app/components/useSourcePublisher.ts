@@ -4,9 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { useXmaxX21 } from "../lib/model";
 import { errorMessage } from "./ui";
 
-// The single owner of the `source` slot. The clip player only *produces* a
+// The single owner of the `source` slot. The still-image source only *produces* a
 // MediaStreamTrack and hands it here; this hook is
-// the only code that calls publish/unpublish on `source`, so clip switches
+// the only code that calls publish/unpublish on `source`, so example switches
 // can never race two publishers against the same transceiver.
 //
 // Reconciliation is serialized: one loop at a time compares the desired

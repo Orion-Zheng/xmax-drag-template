@@ -3,7 +3,7 @@ import "@reactor-team/ui/styles.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "X2.1 Drag · Reactor template",
+  title: "XMAX X2.1 Drag · Reactor template",
   description: "Drag points on a video and the generated character follows.",
 };
 
