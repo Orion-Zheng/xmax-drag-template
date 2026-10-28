@@ -76,7 +76,7 @@ function Workspace() {
   const [ui, setUi] = useState<UiState>(DEFAULT_UI_STATE);
   const uiRef = useRef(ui);
   uiRef.current = ui;
-  const [selected, setSelected] = useState<DragExample | null>(null);
+  const [selected, setSelected] = useState<DragExample>(EXAMPLES[0]);
   const [phase, setPhase] = useState<Phase>("idle");
   const phaseRef = useRef<Phase>("idle");
   phaseRef.current = phase;
@@ -92,7 +92,7 @@ function Workspace() {
   const publishError = useSourcePublisher(sessionClean ? sourceTrack : null);
 
   const sentWindow = useMemo(createSentWindowStore, []);
-  const replay = useDragReplay(selected?.drag ?? null, stillFrame, sentWindow);
+  const replay = useDragReplay(selected.drag, stillFrame, sentWindow);
   const manual = useManualDrag(sentWindow);
   const refUpload = useReferenceUpload();
   const { stop: stopReplay, fail: failReplay } = replay;
@@ -238,15 +238,23 @@ function Workspace() {
   // reset -> clean state_update -> reference image -> prompt. The source still
   // (the same image) is published once the reset is confirmed. No drag is sent until the
   // person drags, or asks for the recorded multi-point drag.
-  const start = (example: DragExample) => {
-    setSelected(example);
-    void runStep(async () => {
+  const run = (example: DragExample) =>
+    runStep(async () => {
       await cleanReset();
       const ok = await refUpload.apply(await fileFromUrl(media(example.refs[0])));
       if (!ok) return "idle";
       await setPrompt({ prompt: example.prompt });
       return "running";
     });
+
+  const start = () => void run(selected);
+
+  // Picking another example while one runs switches to it (Start resets
+  // first); otherwise it only selects it for the next Start.
+  const choose = (example: DragExample) => {
+    if (busy || example.id === selected.id) return;
+    setSelected(example);
+    if (phase === "running") void run(example);
   };
 
   const stop = () =>
@@ -288,13 +296,11 @@ function Workspace() {
       : status === "waiting"
         ? "Waiting for a GPU…"
         : "Connect at the top of the page, then start an example."
-    : !selected
-      ? "Pick an example and press Start."
-      : busy
+    : busy
         ? "Starting…"
         : phase === "running"
           ? "Running. Press and drag on the output to steer the character."
-          : "Reset. Press Start to run an example again.";
+          : "Pick an example and press Start.";
 
   return (
     <>
@@ -318,6 +324,15 @@ function Workspace() {
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <ApiKeyBar />
           <ConnectBar busy={busy} onConnect={connectNow} onDisconnect={() => void leave()} />
+          {phase === "running" ? (
+            <Button size="sm" variant="secondary" disabled={!ready || busy} onClick={() => void stop()}>
+              Reset
+            </Button>
+          ) : (
+            <Button size="sm" disabled={!ready || busy} onClick={start}>
+              {busy && ready ? "Starting…" : "Start"}
+            </Button>
+          )}
         </div>
       </header>
       {needKey && (
@@ -330,7 +345,7 @@ function Workspace() {
           <Stage
             ui={ui}
             hint={hint}
-            imageUrl={selected ? media(selected.refs[0]) : null}
+            imageUrl={media(selected.refs[0])}
             cleared={stageCleared}
             onTrack={setSourceTrack}
             onStillFrame={setStillFrame}
@@ -348,50 +363,23 @@ function Workspace() {
         </section>
         <aside className="flex w-full flex-col gap-4 lg:min-h-0 lg:w-80 lg:shrink-0 lg:overflow-y-auto">
           <Panel label="Examples">
-            {!ready && <p className="mb-2 text-xs text-zinc-500">Connect first to start an example.</p>}
             <div className="grid grid-cols-2 gap-2">
-              {EXAMPLES.map((ex) => {
-                const current = selected?.id === ex.id;
-                return (
-                  <div
-                    key={ex.id}
-                    className={cn(
-                      "overflow-hidden rounded-md border",
-                      current ? "border-brand" : "border-zinc-800",
-                      !ready && "opacity-60",
-                    )}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={media(ex.thumb)} alt="" className="aspect-[3/4] w-full object-cover" />
-                    <span className="block px-2 pt-1.5 text-xs text-zinc-200">{ex.titleEn}</span>
-                    <span className="block px-2 text-[11px] text-zinc-500">
-                      {ex.drag.points > 1 ? `${ex.drag.points}-point drag` : "1-point drag"}
-                    </span>
-                    <div className="p-2">
-                      {current && phase === "running" ? (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          className="w-full"
-                          disabled={!ready || busy}
-                          onClick={() => void stop()}
-                        >
-                          Reset
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          className="w-full"
-                          disabled={!ready || busy}
-                          onClick={() => start(ex)}
-                        >
-                          {busy && current ? "Starting…" : "Start"}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+              {EXAMPLES.map((ex) => (
+                <button
+                  key={ex.id}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => choose(ex)}
+                  className={cn(
+                    "overflow-hidden rounded-md border text-left transition disabled:opacity-60",
+                    selected.id === ex.id ? "border-brand" : "border-zinc-800 hover:border-zinc-600",
+                  )}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={media(ex.thumb)} alt="" className="aspect-[3/4] w-full object-cover" />
+                  <span className="block px-2 py-1.5 text-xs text-zinc-200">{ex.titleEn}</span>
+                </button>
+              ))}
             </div>
           </Panel>
           {commandError && (
@@ -399,7 +387,7 @@ function Workspace() {
           )}
           {publishError && <p className="text-xs text-red-400">Source: {publishError}</p>}
           <DragPanel
-            drag={selected?.drag ?? null}
+            drag={selected.drag}
             replay={replay}
             manual={manual}
             store={sentWindow}

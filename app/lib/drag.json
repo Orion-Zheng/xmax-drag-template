@@ -2,7 +2,7 @@
   "examples": [
     {
       "id": "drag-anime",
-      "titleEn": "Anime girl: three-point drag",
+      "titleEn": "Anime girl",
       "prompt": "",
       "thumb": "drag/drag-anime/thumb.jpg",
       "refs": [
@@ -17,7 +17,7 @@
     },
     {
       "id": "drag-tiger",
-      "titleEn": "Tiger: one-point drag",
+      "titleEn": "Tiger",
       "prompt": "",
       "thumb": "drag/drag-tiger/thumb.jpg",
       "refs": [

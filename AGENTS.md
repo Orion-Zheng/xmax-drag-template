@@ -24,8 +24,9 @@ product. Keep it working while you do.
 
 **Connect** in the header opens the session (`app/DragSession.tsx`, `connectNow`): with no key
 entered it shows a line asking for one and does not connect; otherwise it connects and waits for
-status `ready`. Examples can be started only while connected. Each example card has one button that
-switches between **Start** and **Reset**. Start runs (`start`):
+status `ready`. Examples can be started only while connected. The header has one button that switches
+between **Start** and **Reset**; the example cards only choose which example Start runs (the first is
+selected on load, and picking another while one runs switches to it). Start runs (`run`):
 
 1. `reset`, then wait for a `state_update` with no prompt, no reference and `generating: false`.
 2. Upload the example's reference image (`uploadFile`) and `setReferenceImage` with it.
@@ -70,7 +71,7 @@ same, so the GPU is freed at once.
 | File | What it does |
 |---|---|
 | `app/page.tsx` | Header (title, API key field) and the client-only session below it |
-| `app/DragSession.tsx` | Provider, example cards, the start sequence, Stop / Disconnect |
+| `app/DragSession.tsx` | Provider, header (key, Connect, Start / Reset), example cards, the start sequence |
 | `app/lib/model.ts` | The only import of the model package (`@reactor-models/xmax-x2-1`) |
 | `app/lib/examples.ts`, `app/lib/drag.json` | Example list and types; media in `public/ex/drag/<id>/` |
 | `app/lib/pointerFrames.ts` | `set_pointers` window helpers and the shared "last sent" store |
