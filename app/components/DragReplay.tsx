@@ -19,8 +19,9 @@ import type { ManualDrag } from "./useManualDrag";
 // streamed as the source.
 //
 // The track holds one list of points per frame. Every frame of a still is the
-// same picture, so a clock times the replay: frame = floor(elapsed * fps)
-// modulo the track length, elapsed counted from start(). Each time the frame f
+// same picture, so a clock times the replay: the position advances by
+// elapsed * fps * speed each animation frame, and frame = floor(position)
+// modulo the track length. Changing the speed mid-replay keeps the position. Each time the frame f
 // changes, the points of frames f-3..f
 // are sent as one window,
 // `set_pointers({ frames: [pts(f-3), pts(f-2), pts(f-1), pts(f)] })`
@@ -71,6 +72,11 @@ function fitPoints(pts: DragPoint[], from: Size, to: Size): DragPoint[] {
 }
 
 /** `still`: the streamed still's frame size (from ImageSource), null until it is drawn. */
+/** Replay speed on load: the recordings read too fast at their own pace. */
+const DEFAULT_REPLAY_SPEED = 0.5;
+const MIN_REPLAY_SPEED = 0.1;
+const MAX_REPLAY_SPEED = 1.5;
+
 export function useDragReplay(
   drag: DragSpec | null,
   still: Size | null,
@@ -87,6 +93,13 @@ export function useDragReplay(
   };
   const [failure, setFailure] = useState<string | null>(null);
   const [frame, setFrame] = useState<number | null>(null);
+  // Replay speed relative to the recording (1 = as recorded).
+  const [speed, setSpeedState] = useState(DEFAULT_REPLAY_SPEED);
+  const speedRef = useRef(DEFAULT_REPLAY_SPEED);
+  const setSpeed = useCallback((v: number) => {
+    speedRef.current = v;
+    setSpeedState(v);
+  }, []);
 
   const stillRef = useRef<Size | null>(still);
   stillRef.current = still;
@@ -197,10 +210,13 @@ export function useDragReplay(
       if (phaseRef.current !== "held") store.set({ window: w, from: "replay", sent: live });
       if (live) void setPointers(framesPayload(w));
     };
-    const t0 = performance.now();
+    let last = performance.now();
+    let position = 0;
     const step = (now: number) => {
       if (stopped) return;
-      onFrameIndex(Math.floor((Math.max(0, now - t0) / 1000) * t.fps) % t.frames.length);
+      position += (Math.max(0, now - last) / 1000) * t.fps * speedRef.current;
+      last = now;
+      onFrameIndex(Math.floor(position) % t.frames.length);
       handle = requestAnimationFrame(step);
     };
     handle = requestAnimationFrame(step);
@@ -237,7 +253,7 @@ export function useDragReplay(
 
   const isLoadedFor = useCallback((spec: DragSpec) => loadedForRef.current === spec, []);
 
-  return { track, isLoadedFor, trackError, phase, failure, frame, start, stop, hold, fail };
+  return { track, isLoadedFor, trackError, phase, failure, frame, speed, setSpeed, start, stop, hold, fail };
 }
 
 export type DragReplay = ReturnType<typeof useDragReplay>;
@@ -302,6 +318,24 @@ export function DragPanel({
           New here? Start the first example, the anime girl, and press “Try multi-point drag” to see
           several points steer her at once.
         </p>
+      )}
+      {drag && drag.points > 1 && (
+        <label className="mt-3 block text-[11px] text-zinc-400" htmlFor="replay-speed">
+          <span className="flex justify-between">
+            <span>Replay speed</span>
+            <span className="font-mono text-zinc-300">{replay.speed.toFixed(2)}×</span>
+          </span>
+          <input
+            id="replay-speed"
+            type="range"
+            min={MIN_REPLAY_SPEED}
+            max={MAX_REPLAY_SPEED}
+            step={0.05}
+            value={replay.speed}
+            onChange={(e) => replay.setSpeed(Number(e.target.value))}
+            className="mt-1 w-full accent-brand"
+          />
+        </label>
       )}
       {drag && drag.points > 1 && (
         <p className="mt-1 text-[11px] text-zinc-500">
