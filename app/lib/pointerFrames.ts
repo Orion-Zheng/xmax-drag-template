@@ -79,3 +79,14 @@ export function createSentWindowStore(): SentWindowStore {
     },
   };
 }
+
+// Whether drag windows may be sent now, and whether any was sent in this run.
+// The page closes the gate the moment a reset begins and opens it only when the
+// new run is armed, so no hand drag or replay tick can reach the model between
+// a reset and the next run. `sent` tells the reset whether the model may still
+// hold points that need clearing first.
+export type PointerGate = { open: boolean; sent: boolean };
+
+export function createPointerGate(): PointerGate {
+  return { open: false, sent: false };
+}

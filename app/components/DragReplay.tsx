@@ -9,6 +9,7 @@ import {
   framesPayload,
   windowIndices,
   type DragPoint,
+  type PointerGate,
   type PointerWindow,
   type SentWindowStore,
 } from "../lib/pointerFrames";
@@ -81,6 +82,7 @@ export function useDragReplay(
   drag: DragSpec | null,
   still: Size | null,
   store: SentWindowStore,
+  gate: PointerGate,
 ) {
   const { setPointers } = useXmaxX21();
   const [track, setTrack] = useState<DragTrack | null>(null);
@@ -177,9 +179,9 @@ export function useDragReplay(
         halt();
         setPhase("off");
       }
-      if (clear) void setPointers(framesPayload(EMPTY_WINDOW));
+      if (clear && gate.open) void setPointers(framesPayload(EMPTY_WINDOW));
     },
-    [halt, setPointers],
+    [halt, setPointers, gate],
   );
 
   const start = useCallback(async () => {
@@ -208,7 +210,10 @@ export function useDragReplay(
       setFrame(f);
       const live = phaseRef.current === "running" && !!outSizeRef.current;
       if (phaseRef.current !== "held") store.set({ window: w, from: "replay", sent: live });
-      if (live) void setPointers(framesPayload(w));
+      if (live && gate.open) {
+        gate.sent = true;
+        void setPointers(framesPayload(w));
+      }
     };
     let last = performance.now();
     let position = 0;
@@ -224,7 +229,7 @@ export function useDragReplay(
       stopped = true;
       cancelAnimationFrame(handle);
     };
-  }, [halt, toOutput, store, setPointers]);
+  }, [halt, toOutput, store, setPointers, gate]);
 
   /** A manual drag is held (true) or released (false). Returns true when the
    *  release resumes a paused replay, which then owns the pointer stream. */
@@ -274,6 +279,7 @@ export function DragPanel({
   store,
   running,
   onError,
+  note = null,
 }: {
   drag: DragSpec | null;
   replay: DragReplay;
@@ -282,6 +288,8 @@ export function DragPanel({
   /** Generation has been started, so the drag can steer it. */
   running: boolean;
   onError: (message: string) => void;
+  /** Shown in place of the multi-point hint (e.g. why the replay is off). */
+  note?: string | null;
 }) {
   const sent = useSentWindow(store);
   const replaying = replay.phase === "running" || replay.phase === "held";
@@ -313,7 +321,9 @@ export function DragPanel({
           )}
         </div>
       )}
-      {(!drag || drag.points === 1) && (
+      {note ? (
+        <p className="mt-2 text-[11px] text-zinc-500">{note}</p>
+      ) : (!drag || drag.points === 1) && (
         <p className="mt-2 text-[11px] text-zinc-500">
           New here? Start the first example, the anime girl, and press “Try multi-point drag” to see
           several points steer her at once.

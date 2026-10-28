@@ -8,6 +8,7 @@ import {
   framesPayload,
   type DragPoint,
   type PointerWindow,
+  type PointerGate,
   type SentWindowStore,
 } from "../lib/pointerFrames";
 
@@ -32,7 +33,7 @@ type Sample = { t: number; x: number; y: number };
 // replay takes over at release (`handOff`), which then sends its own window.
 export type ManualPhase = "idle" | "dragging" | "releasing" | "failed";
 
-export function useManualDrag(store: SentWindowStore) {
+export function useManualDrag(store: SentWindowStore, gate: PointerGate) {
   const { setPointers } = useXmaxX21();
   const [phase, setPhaseState] = useState<ManualPhase>("idle");
   const phaseRef = useRef<ManualPhase>("idle");
@@ -74,7 +75,10 @@ export function useManualDrag(store: SentWindowStore) {
     const w = [...windowRef.current.slice(1), pos];
     windowRef.current = w;
     store.set({ window: w, from: "manual", sent: true });
-    void setPointers(framesPayload(w));
+    if (gate.open) {
+      gate.sent = true;
+      void setPointers(framesPayload(w));
+    }
     // A rejection can be reported (fail) while this send is still on the stack.
     if (phaseRef.current === "failed") return;
     slotRef.current++;
@@ -86,7 +90,7 @@ export function useManualDrag(store: SentWindowStore) {
     // Schedule against the slot grid, not the previous timer, so slots do not drift.
     const next = t0Ref.current + (slotRef.current + 1) * SLOT_MS;
     timerRef.current = setTimeout(tick, Math.max(0, next - performance.now()));
-  }, [setPointers, store]);
+  }, [setPointers, store, gate]);
 
   const record = (t: number, x: number, y: number) => {
     samplesRef.current.push({ t, x, y });
@@ -147,9 +151,19 @@ export function useManualDrag(store: SentWindowStore) {
     [stopClock],
   );
 
+  /** Drop any drag in progress at once, without sending (the page is resetting). */
+  const cancel = useCallback(() => {
+    stopClock();
+    pressedRef.current = false;
+    samplesRef.current = [];
+    windowRef.current = EMPTY_WINDOW;
+    if (store.get()?.from === "manual") store.set(null);
+    setPhase("idle");
+  }, [stopClock, store]);
+
   useEffect(() => () => stopClock(), [stopClock]);
 
-  return { phase, failure, press, move, release, fail };
+  return { phase, failure, press, move, release, fail, cancel };
 }
 
 export type ManualDrag = ReturnType<typeof useManualDrag>;

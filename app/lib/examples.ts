@@ -3,9 +3,10 @@
 //          also sent as the reference image, plus a recorded pointer
 //          trajectory that can be replayed over it. Media in
 //          public/ex/drag/<id>/ (reference.jpg, thumb.jpg, track.json).
-//   video  video-to-video: a looping clip streamed as the `source`, a prompt
-//          and a reference image, both editable on the page. Media in
-//          public/ex/video/<id>/ (source.mp4, reference.jpg, thumb.jpg).
+//   video  video-to-video: the visitor's webcam (default) or the example's
+//          looping clip streamed as the `source`, a prompt and a reference
+//          image, both editable on the page. Media in public/ex/video/<id>/
+//          (source.mp4, reference.jpg, thumb.jpg).
 import data from "./examples.json";
 
 export interface DragSpec {
@@ -45,7 +46,7 @@ export interface DragExample extends BaseExample {
 export interface VideoExample extends BaseExample {
   kind: "video";
   video: {
-    /** The clip streamed (looping) as the `source` track. */
+    /** The example clip, streamed (looping) as the `source` when Webcam is not used. */
     source: string;
   };
 }
@@ -56,7 +57,3 @@ export const EXAMPLES = data.examples as Example[];
 
 /** Media paths in examples.json are relative to public/ex/. */
 export const media = (p: string) => `/ex/${p}`;
-
-/** What the example streams as `source`: its clip, or its starting image as a still. */
-export const sourceUrl = (ex: Example) =>
-  ex.kind === "video" ? media(ex.video.source) : media(ex.refs[0]);

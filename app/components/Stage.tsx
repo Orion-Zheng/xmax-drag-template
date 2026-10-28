@@ -8,17 +8,24 @@ import { PointerOverlay } from "./PointerOverlay";
 import type { ManualDrag } from "./useManualDrag";
 import { ImageSource } from "./ImageSource";
 import { VideoSource } from "./VideoSource";
+import { WebcamSource } from "./WebcamSource";
 
 type FrameVideo = HTMLVideoElement & {
   requestVideoFrameCallback?: (cb: () => void) => number;
   cancelVideoFrameCallback?: (id: number) => void;
 };
 
-/** What the model is fed: a still image or a looping clip. */
-export type StageSource = { kind: "image" | "video"; url: string; poster: string };
+/** What the model is fed: a still image, a looping clip, or the webcam.
+ *  "camera-off": the webcam is the source but not on yet (it starts on Start). */
+export type StageSource = {
+  kind: "image" | "video" | "webcam" | "camera-off";
+  url: string;
+  poster: string;
+};
 
 // The stage: the model's output fills it, and the source being streamed into
-// the model (the `source` track: a still image or a looping clip) sits in a
+// the model (the `source` track: a still image, a looping clip or the webcam)
+// sits in a
 // corner inset. The output carries the drag overlay: press and drag on it to
 // steer (set_pointers, normalised to the output frame). The window last sent,
 // by hand or replayed, is drawn on it.
@@ -35,6 +42,7 @@ export function Stage({
   blank,
   onTrack,
   onSourceFrame,
+  onSourceError,
   manual,
   sentWindow,
   replayAspect,
@@ -52,6 +60,8 @@ export function Stage({
   onTrack: (track: MediaStreamTrack | null) => void;
   /** The streamed source's frame size, which maps the replay. */
   onSourceFrame: (size: { w: number; h: number } | null) => void;
+  /** The webcam could not start (denied, missing, busy). */
+  onSourceError: (message: string) => void;
   manual: ManualDrag;
   sentWindow: SentWindowStore;
   /** Aspect to place the drawn window in until the output size is known. */
@@ -139,11 +149,21 @@ export function Stage({
       <div className="absolute right-3 bottom-12 z-10 aspect-[9/16] w-24 overflow-hidden rounded-md border border-zinc-700 bg-black shadow-lg lg:w-32">
         {source.kind === "video" ? (
           <VideoSource videoUrl={source.url} onTrack={onTrack} onFrame={onSourceFrame} />
+        ) : source.kind === "webcam" ? (
+          <WebcamSource onTrack={onTrack} onFrame={onSourceFrame} onError={onSourceError} />
+        ) : source.kind === "camera-off" ? (
+          <div className="absolute inset-0 flex items-center justify-center p-2 text-center text-[10px] text-zinc-500">
+            The camera turns on when you press Start.
+          </div>
         ) : (
           <ImageSource imageUrl={source.url} onTrack={onTrack} onFrame={onSourceFrame} />
         )}
         <span className="absolute inset-x-0 bottom-0 bg-black/70 px-1 py-0.5 text-center font-mono text-[9px] leading-tight text-zinc-300">
-          {source.kind === "video" ? "source video" : "source image"}
+          {source.kind === "video"
+            ? "source video"
+            : source.kind === "image"
+              ? "source image"
+              : "webcam"}
         </span>
       </div>
 
