@@ -71,12 +71,12 @@ function fitPoints(pts: DragPoint[], from: Size, to: Size): DragPoint[] {
   ]);
 }
 
-/** `still`: the streamed still's frame size (from ImageSource), null until it is drawn. */
 /** Replay speed on load: the recordings read too fast at their own pace. */
 const DEFAULT_REPLAY_SPEED = 0.5;
 const MIN_REPLAY_SPEED = 0.1;
 const MAX_REPLAY_SPEED = 1.5;
 
+/** `still`: the streamed still's frame size (from ImageSource), null until it is drawn. */
 export function useDragReplay(
   drag: DragSpec | null,
   still: Size | null,

@@ -16,9 +16,9 @@ import { errorMessage } from "./ui";
 // media onto the existing RTCRtpSender without renegotiating, so a direct
 // re-publish is the safe path. Unpublish only happens when the producer
 // goes away entirely (no track) or on unmount.
-export function useSourcePublisher(
-  track: MediaStreamTrack | null,
-): string | null {
+/** Returns the last publish error and a ref to the track currently on the wire
+ *  (null = nothing published), so a caller can wait for a specific track. */
+export function useSourcePublisher(track: MediaStreamTrack | null) {
   const { publish, unpublish, status } = useXmaxX21();
   const [error, setError] = useState<string | null>(null);
 
@@ -96,5 +96,5 @@ export function useSourcePublisher(
     [unpublish],
   );
 
-  return error;
+  return { error, publishedRef };
 }

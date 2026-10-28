@@ -2,6 +2,7 @@
   "examples": [
     {
       "id": "drag-anime",
+      "kind": "drag",
       "titleEn": "Anime girl",
       "prompt": "",
       "thumb": "drag/drag-anime/thumb.jpg",
@@ -17,6 +18,7 @@
     },
     {
       "id": "drag-tiger",
+      "kind": "drag",
       "titleEn": "Tiger",
       "prompt": "",
       "thumb": "drag/drag-tiger/thumb.jpg",
@@ -28,6 +30,19 @@
         "points": 1,
         "fps": 24,
         "frames": 1441
+      }
+    },
+    {
+      "id": "character-replacement",
+      "kind": "video",
+      "titleEn": "Character replacement",
+      "prompt": "Become the character in the reference image",
+      "thumb": "video/character-replacement/thumb.jpg",
+      "refs": [
+        "video/character-replacement/reference.jpg"
+      ],
+      "video": {
+        "source": "video/character-replacement/source.mp4"
       }
     }
   ]

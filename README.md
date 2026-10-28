@@ -1,8 +1,10 @@
 # XMAX X2.1 Drag · Reactor template
 
 Drag points on a video and the generated character follows. A one-page Next.js app for the Reactor
-model [`reactor/xmax-x2-1`](https://www.reactor.inc/models/xmax-x2-1): connect, start one of two examples (an anime girl, a tiger),
-and press and drag on the output yourself. The first example can also replay a three-point drag.
+model [`reactor/xmax-x2-1`](https://www.reactor.inc/models/xmax-x2-1): connect, start one of three examples (two drag
+examples, an anime girl and a tiger, and one video-to-video character replacement with an editable
+prompt and reference image), and press and drag on the output yourself. The first example can also
+replay a three-point drag.
 
 ```sh
 pnpm install && pnpm dev

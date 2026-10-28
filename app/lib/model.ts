@@ -7,6 +7,7 @@ export {
   XmaxX21MainVideoView,
   XmaxX21Provider,
   useXmaxX21,
+  useXmaxX21GenerationStarted,
   useXmaxX21GenerationStopped,
   useXmaxX21StateUpdate,
   type XmaxX21StateUpdateMessage,

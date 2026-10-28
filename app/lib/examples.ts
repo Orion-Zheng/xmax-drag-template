@@ -1,9 +1,12 @@
-// The drag examples. Each one is a starting image, streamed into the model as
-// a still `source` and also sent as the reference image, plus a recorded
-// pointer trajectory that can be replayed over it. Metadata lives in
-// drag.json; the media in public/ex/drag/<id>/ (reference.jpg, thumb.jpg,
-// track.json).
-import drag from "./drag.json";
+// The examples, one list (examples.json), two kinds:
+//   drag   a starting image, streamed into the model as a still `source` and
+//          also sent as the reference image, plus a recorded pointer
+//          trajectory that can be replayed over it. Media in
+//          public/ex/drag/<id>/ (reference.jpg, thumb.jpg, track.json).
+//   video  video-to-video: a looping clip streamed as the `source`, a prompt
+//          and a reference image, both editable on the page. Media in
+//          public/ex/video/<id>/ (source.mp4, reference.jpg, thumb.jpg).
+import data from "./examples.json";
 
 export interface DragSpec {
   /** track.json: { fps, width, height, frames: [[[x, y], ...] per frame] }. */
@@ -23,19 +26,37 @@ export interface DragTrack {
   frames: [number, number][][];
 }
 
-export interface DragExample {
+interface BaseExample {
   id: string;
   titleEn: string;
-  /** Sent with set_prompt; "" is valid (the trajectory is the condition). */
+  /** Sent with set_prompt; "" is valid. */
   prompt: string;
   /** Card image. Display only. */
   thumb: string;
   /** Reference images; the first is uploaded. */
   refs: string[];
+}
+
+export interface DragExample extends BaseExample {
+  kind: "drag";
   drag: DragSpec;
 }
 
-export const EXAMPLES: DragExample[] = drag.examples;
+export interface VideoExample extends BaseExample {
+  kind: "video";
+  video: {
+    /** The clip streamed (looping) as the `source` track. */
+    source: string;
+  };
+}
 
-/** Media paths in drag.json are relative to public/ex/. */
+export type Example = DragExample | VideoExample;
+
+export const EXAMPLES = data.examples as Example[];
+
+/** Media paths in examples.json are relative to public/ex/. */
 export const media = (p: string) => `/ex/${p}`;
+
+/** What the example streams as `source`: its clip, or its starting image as a still. */
+export const sourceUrl = (ex: Example) =>
+  ex.kind === "video" ? media(ex.video.source) : media(ex.refs[0]);

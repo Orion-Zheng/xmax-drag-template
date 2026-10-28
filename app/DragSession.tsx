@@ -1,23 +1,25 @@
 "use client";
 
 // The page. Connect (with the visitor's own API key) from the header, then
-// Start an example: the page resets the model, sends the example's reference
-// image and prompt, and streams its starting image, as a still, as the
-// `source` track. Press and
-// drag on the output to steer; a multi-point example can also replay its
-// recorded drag on request. Reset clears the model for the next run.
+// Start an example: the page resets the model, streams the example's source
+// (a drag example's starting image as a still, or a video example's clip) as
+// the `source` track, and sends its reference image and prompt. Press and drag
+// on the output to steer; a multi-point example can also replay its recorded
+// drag on request, and a video example's prompt and reference can be changed
+// live. Reset clears the model for the next run.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   REACTOR_API_URL,
   XmaxX21Provider,
   useXmaxX21,
+  useXmaxX21GenerationStarted,
   useXmaxX21GenerationStopped,
   useXmaxX21StateUpdate,
   type XmaxX21StateUpdateMessage,
 } from "./lib/model";
 import { getApiKey, useApiKey, useApiKeyEpoch } from "./lib/api-key";
 import { fetchToken } from "./lib/token";
-import { EXAMPLES, media, type DragExample } from "./lib/examples";
+import { EXAMPLES, media, sourceUrl, type Example } from "./lib/examples";
 import { DEFAULT_UI_STATE, type UiState } from "./lib/types";
 import { reduce } from "./lib/state";
 import { createSentWindowStore } from "./lib/pointerFrames";
@@ -25,7 +27,7 @@ import { fileFromUrl, useReferenceUpload } from "./lib/reference";
 import { ApiKeyBar } from "./components/ApiKeyBar";
 import { ConnectBar } from "./components/ConnectBar";
 import { CommandError } from "./components/CommandError";
-import { Stage } from "./components/Stage";
+import { Stage, type StageSource } from "./components/Stage";
 import { DragPanel, useDragReplay } from "./components/DragReplay";
 import { useManualDrag } from "./components/useManualDrag";
 import { useSourcePublisher } from "./components/useSourcePublisher";
@@ -76,27 +78,75 @@ function Workspace() {
   const [ui, setUi] = useState<UiState>(DEFAULT_UI_STATE);
   const uiRef = useRef(ui);
   uiRef.current = ui;
-  const [selected, setSelected] = useState<DragExample>(EXAMPLES[0]);
+  const [selected, setSelected] = useState<Example>(EXAMPLES[0]);
   const [phase, setPhase] = useState<Phase>("idle");
   const phaseRef = useRef<Phase>("idle");
   phaseRef.current = phase;
   const [needKey, setNeedKey] = useState(false);
-  const [stageCleared, setStageCleared] = useState(false);
 
-  // The source still's track is published only after the model has confirmed a
-  // reset in this session, so no frame ever meets a previous session's state.
+  // ---- the output cover ----------------------------------------------------
+  // `blank` hides the output. It is set the moment a Start, switch or Reset
+  // begins, and cleared only by the NEW run: `armed` is raised once the clean
+  // post-reset state_update has been seen, and only after that does a
+  // generating state_update / generation_started clear the cover. State
+  // updates from the previous run that arrive before the reset is processed
+  // still say generating: true; unarmed, they are ignored.
+  const [blank, setBlank] = useState(true);
+  const armedRef = useRef(false);
+  const blankNow = useCallback(() => {
+    armedRef.current = false;
+    setBlank(true);
+  }, []);
+
+  // ---- the source ----------------------------------------------------------
+  // The producer (ImageSource / VideoSource) hands its track here. A track is
+  // tagged with the source URL it was produced for, so a run can wait for the
+  // track of ITS example. The track is published only while `sourceOn`, which
+  // a run turns off when it begins (the old source is unpublished) and on once
+  // the model has confirmed the reset.
+  const source: StageSource =
+    selected.kind === "video"
+      ? { kind: "video", url: sourceUrl(selected), poster: media(selected.thumb) }
+      : { kind: "image", url: sourceUrl(selected), poster: sourceUrl(selected) };
+  const currentSourceRef = useRef(source.url);
+  currentSourceRef.current = source.url;
   const [sourceTrack, setSourceTrack] = useState<MediaStreamTrack | null>(null);
-  // The streamed still's frame size: maps and times the recorded drag.
-  const [stillFrame, setStillFrame] = useState<{ w: number; h: number } | null>(null);
-  const [sessionClean, setSessionClean] = useState(false);
-  const publishError = useSourcePublisher(sessionClean ? sourceTrack : null);
+  const trackRef = useRef<MediaStreamTrack | null>(null);
+  const trackUrlRef = useRef<string | null>(null);
+  const onTrack = useCallback((t: MediaStreamTrack | null) => {
+    trackRef.current = t;
+    trackUrlRef.current = t ? currentSourceRef.current : null;
+    setSourceTrack(t);
+  }, []);
+  // The streamed source's frame size: maps and times the recorded drag.
+  const [sourceFrame, setSourceFrame] = useState<{ w: number; h: number } | null>(null);
+  const [sourceOn, setSourceOn] = useState(false);
+  const { error: publishError, publishedRef } = useSourcePublisher(sourceOn ? sourceTrack : null);
 
   const sentWindow = useMemo(createSentWindowStore, []);
-  const replay = useDragReplay(selected.drag, stillFrame, sentWindow);
+  const dragSpec = selected.kind === "drag" ? selected.drag : null;
+  const replay = useDragReplay(dragSpec, dragSpec ? sourceFrame : null, sentWindow);
   const manual = useManualDrag(sentWindow);
   const refUpload = useReferenceUpload();
   const { stop: stopReplay, fail: failReplay } = replay;
   const { fail: failManual } = manual;
+
+  // ---- video example: editable prompt and reference --------------------------
+  // `refImage.file` is set for the visitor's own upload; otherwise `src` is the
+  // example's image. `applied` is what the model holds, for the Apply button.
+  const [promptText, setPromptText] = useState(EXAMPLES[0].prompt);
+  const [refImage, setRefImageState] = useState<{ src: string; file: File | null }>({
+    src: media(EXAMPLES[0].refs[0]),
+    file: null,
+  });
+  const setRefImage = (next: { src: string; file: File | null }) =>
+    setRefImageState((prev) => {
+      if (prev.src !== next.src && prev.src.startsWith("blob:") && prev.src !== applied?.refSrc)
+        URL.revokeObjectURL(prev.src);
+      return next;
+    });
+  const [applied, setApplied] = useState<{ prompt: string; refSrc: string } | null>(null);
+  const [applying, setApplying] = useState(false);
 
   const [commandError, setCommandError] = useState<string | null>(null);
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -117,10 +167,15 @@ function Workspace() {
   const stateWaiters = useRef<((m: XmaxX21StateUpdateMessage) => boolean)[]>([]);
   useXmaxX21StateUpdate((msg) => {
     stateWaiters.current = stateWaiters.current.filter((w) => !w(msg));
-    if (msg.generating) setStageCleared(false);
+    if (msg.generating && armedRef.current) setBlank(false);
     setUi((s) => reduce(s, msg));
   });
-  useXmaxX21GenerationStopped(() => setStageCleared(true));
+  useXmaxX21GenerationStarted(() => {
+    if (armedRef.current) setBlank(false);
+  });
+  // The reset's generation_stopped precedes its clean state_update, so this
+  // only re-covers; it does not disarm a run that is about to start.
+  useXmaxX21GenerationStopped(() => setBlank(true));
 
   const seenError = useRef(lastError);
   useEffect(() => {
@@ -139,7 +194,8 @@ function Workspace() {
     const was = prevStatus.current;
     prevStatus.current = status;
     if (status !== "ready") {
-      setSessionClean(false);
+      setSourceOn(false);
+      blankNow();
       // A run in progress (busy) is connecting right now and settles itself.
       if (phaseRef.current !== "busy") setPhase("idle");
       stopReplay();
@@ -147,9 +203,9 @@ function Workspace() {
     if (status === "disconnected") {
       if (was !== "disconnected") lastEnd.current = Date.now();
       setUi(DEFAULT_UI_STATE);
-      setStageCleared(false);
+      setApplied(null);
     }
-  }, [status, stopReplay]);
+  }, [status, stopReplay, blankNow]);
 
   // ---- the start sequence --------------------------------------------------
   // "Clean" = a state_update with no prompt, no reference and not generating;
@@ -174,13 +230,17 @@ function Workspace() {
     [],
   );
 
+  // Cover the output and take the source off the wire at once, then reset and
+  // wait for the model to confirm it.
   const cleanReset = useCallback(async () => {
+    blankNow();
+    setSourceOn(false);
     stopReplay();
+    setApplied(null);
     const confirmed = waitClean(); // listen before sending
     Promise.resolve(reset()).catch(() => {});
     await confirmed;
-    setSessionClean(true);
-  }, [reset, waitClean, stopReplay]);
+  }, [reset, waitClean, stopReplay, blankNow]);
 
   const ensureConnected = useCallback(async () => {
     if (statusRef.current === "disconnected") {
@@ -235,26 +295,52 @@ function Workspace() {
     });
   };
 
-  // reset -> clean state_update -> reference image -> prompt. The source still
-  // (the same image) is published once the reset is confirmed. No drag is sent until the
+  // cover + unpublish the old source -> reset -> clean state_update -> publish
+  // this example's source and wait until it is on the wire -> reference image
+  // -> arm the cover -> prompt (generation starts). No drag is sent until the
   // person drags, or asks for the recorded multi-point drag.
-  const run = (example: DragExample) =>
+  const run = (example: Example, prompt: string, ref: { src: string; file: File | null }) =>
     runStep(async () => {
       await cleanReset();
-      const ok = await refUpload.apply(await fileFromUrl(media(example.refs[0])));
+      const url = sourceUrl(example);
+      await waitFor(
+        () => trackUrlRef.current === url && !!trackRef.current,
+        15_000,
+        "The example's source did not load.",
+      );
+      setSourceOn(true);
+      await waitFor(
+        () => !!trackRef.current && publishedRef.current === trackRef.current,
+        15_000,
+        "The source could not be published.",
+      );
+      const ok = await refUpload.apply(ref.file ?? (await fileFromUrl(ref.src)));
       if (!ok) return "idle";
-      await setPrompt({ prompt: example.prompt });
+      armedRef.current = true;
+      await setPrompt({ prompt });
+      setApplied({ prompt, refSrc: ref.src });
       return "running";
     });
 
-  const start = () => void run(selected);
+  const defaultsOf = (ex: Example) => ({
+    prompt: ex.prompt,
+    ref: { src: media(ex.refs[0]), file: null },
+  });
 
-  // Picking another example while one runs switches to it (Start resets
-  // first); otherwise it only selects it for the next Start.
-  const choose = (example: DragExample) => {
+  const start = () =>
+    void (selected.kind === "video"
+      ? run(selected, promptText.trim(), refImage)
+      : run(selected, selected.prompt, defaultsOf(selected).ref));
+
+  // Picking another example while one runs switches to it (with that
+  // example's own prompt and reference); otherwise it only selects it.
+  const choose = (example: Example) => {
     if (busy || example.id === selected.id) return;
+    const d = defaultsOf(example);
     setSelected(example);
-    if (phase === "running") void run(example);
+    setPromptText(d.prompt);
+    setRefImage(d.ref);
+    if (phase === "running") void run(example, d.prompt, d.ref);
   };
 
   const stop = () =>
@@ -262,6 +348,26 @@ function Workspace() {
       await cleanReset();
       return "idle";
     });
+
+  // Video example, while running: send what changed, without a reset.
+  const promptDirty = !!applied && promptText.trim() !== applied.prompt;
+  const refDirty = !!applied && refImage.src !== applied.refSrc;
+  const applyLive = async () => {
+    if (!applied || applying || phase !== "running") return;
+    setApplying(true);
+    try {
+      if (refDirty) {
+        const ok = await refUpload.apply(refImage.file ?? (await fileFromUrl(refImage.src)));
+        if (!ok) throw new Error("The model did not accept the reference image.");
+      }
+      if (promptDirty) await setPrompt({ prompt: promptText.trim() });
+      setApplied({ prompt: promptText.trim(), refSrc: refImage.src });
+    } catch (err) {
+      showError(errorMessage(err));
+    } finally {
+      setApplying(false);
+    }
+  };
 
   const leave = () =>
     runStep(async () => {
@@ -290,17 +396,16 @@ function Workspace() {
 
   const busy = phase === "busy";
   const ready = status === "ready";
+  const running = phase === "running";
   const hint = !ready
     ? status === "connecting"
       ? "Connecting…"
       : status === "waiting"
         ? "Waiting for a GPU…"
         : "Connect at the top of the page, then start an example."
-    : busy
+    : busy || running
         ? "Starting…"
-        : phase === "running"
-          ? "Running. Press and drag on the output to steer the character."
-          : "Pick an example and press Start.";
+        : "Pick an example and press Start.";
 
   return (
     <>
@@ -324,7 +429,7 @@ function Workspace() {
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <ApiKeyBar />
           <ConnectBar busy={busy} onConnect={connectNow} onDisconnect={() => void leave()} />
-          {phase === "running" ? (
+          {running ? (
             <Button size="sm" variant="secondary" disabled={!ready || busy} onClick={() => void stop()}>
               Reset
             </Button>
@@ -345,15 +450,15 @@ function Workspace() {
           <Stage
             ui={ui}
             hint={hint}
-            imageUrl={media(selected.refs[0])}
-            cleared={stageCleared}
-            onTrack={setSourceTrack}
-            onStillFrame={setStillFrame}
+            source={source}
+            blank={blank}
+            onTrack={onTrack}
+            onSourceFrame={setSourceFrame}
             manual={manual}
             sentWindow={sentWindow}
             replayAspect={
-              stillFrame
-                ? stillFrame.w / stillFrame.h
+              sourceFrame
+                ? sourceFrame.w / sourceFrame.h
                 : replay.track
                   ? replay.track.width / replay.track.height
                   : null
@@ -363,7 +468,7 @@ function Workspace() {
         </section>
         <aside className="flex w-full flex-col gap-4 lg:min-h-0 lg:w-80 lg:shrink-0 lg:overflow-y-auto">
           <Panel label="Examples">
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               {EXAMPLES.map((ex) => (
                 <button
                   key={ex.id}
@@ -386,12 +491,77 @@ function Workspace() {
             <CommandError message={commandError} onDismiss={() => setCommandError(null)} />
           )}
           {publishError && <p className="text-xs text-red-400">Source: {publishError}</p>}
+          {selected.kind === "video" && (
+            <Panel label="Prompt and reference">
+              <label htmlFor="prompt" className="block text-[11px] text-zinc-400">
+                Prompt
+              </label>
+              <textarea
+                id="prompt"
+                rows={3}
+                maxLength={1000}
+                value={promptText}
+                onChange={(e) => setPromptText(e.target.value)}
+                className="mt-1 w-full resize-y rounded-md border border-zinc-700 bg-black/50 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:border-zinc-500"
+              />
+              <p className="mt-3 text-[11px] text-zinc-400">Reference image</p>
+              <div className="mt-1 flex items-start gap-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={refImage.src}
+                  alt="Reference"
+                  className="h-24 w-24 shrink-0 rounded-md border border-zinc-800 object-contain"
+                />
+                <div className="min-w-0 text-[11px] text-zinc-500">
+                  <label className="inline-block cursor-pointer rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-800">
+                    Upload your own image
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="sr-only"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        if (file) setRefImage({ src: URL.createObjectURL(file), file });
+                      }}
+                    />
+                  </label>
+                  {refImage.file ? (
+                    <button
+                      type="button"
+                      className="mt-1 block underline hover:text-zinc-300"
+                      onClick={() => setRefImage(defaultsOf(selected).ref)}
+                    >
+                      Use the example&apos;s image
+                    </button>
+                  ) : (
+                    <p className="mt-1">The example&apos;s image.</p>
+                  )}
+                </div>
+              </div>
+              {running && (
+                <Button
+                  size="sm"
+                  className="mt-3 w-full"
+                  disabled={applying || (!promptDirty && !refDirty)}
+                  onClick={() => void applyLive()}
+                >
+                  {applying ? "Applying…" : "Apply"}
+                </Button>
+              )}
+              <p className="mt-2 text-[11px] text-zinc-500">
+                {running
+                  ? "Apply sends a changed prompt or image to the running model without a reset."
+                  : "Start sends this prompt and image, then streams the clip."}
+              </p>
+            </Panel>
+          )}
           <DragPanel
-            drag={selected.drag}
+            drag={dragSpec}
             replay={replay}
             manual={manual}
             store={sentWindow}
-            running={phase === "running"}
+            running={running}
             onError={showError}
           />
         </aside>

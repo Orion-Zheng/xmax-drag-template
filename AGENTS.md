@@ -28,15 +28,36 @@ status `ready`. Examples can be started only while connected. The header has one
 between **Start** and **Reset**; the example cards only choose which example Start runs (the first is
 selected on load, and picking another while one runs switches to it). Start runs (`run`):
 
-1. `reset`, then wait for a `state_update` with no prompt, no reference and `generating: false`.
-2. Upload the example's reference image (`uploadFile`) and `setReferenceImage` with it.
-3. `setPrompt` with the example's prompt (`""` is valid and still starts generation).
-4. The example's starting image (`refs[0]`, the same image as the reference) is streamed as a still
-   on the `source` track: `ImageSource` fetches it to a `blob:` URL (so the canvas is never
-   cross-origin tainted), draws it to a canvas (long side at most 1280, sides floored to multiples
-   of 4) and publishes `canvas.captureStream(24)`, repainting the same frame at 24 fps. No video is
-   needed. Publishing is held back until step 1 confirmed, so no frame meets the previous session's
-   state.
+1. Cover the output and take the current source off the wire (see "Switching and the output cover").
+2. `reset`, then wait for a `state_update` with no prompt, no reference and `generating: false`.
+3. Publish this example's source and wait until that exact track is on the wire, so no frame of the
+   previous example feeds the new run:
+   - **drag** example: its starting image (`refs[0]`, the same image as the reference) as a still.
+     `ImageSource` fetches it to a `blob:` URL (so the canvas is never cross-origin tainted), draws
+     it to a canvas (long side at most 1280, sides floored to multiples of 4) and publishes
+     `canvas.captureStream(24)`, repainting the same frame at 24 fps.
+   - **video** example: its clip, muted and looping. `VideoSource` fetches it to a `blob:` URL
+     (`captureStream()` refuses a cross-origin clip; it falls back to `crossOrigin="anonymous"`)
+     and publishes the `<video>`'s `captureStream()`.
+4. Upload the reference image (`uploadFile`) and `setReferenceImage` with it: the example's image,
+   or for a video example the one shown in its panel (the visitor's upload, if any).
+5. `setPrompt`: the example's prompt for a drag example (`""` is valid and still starts generation),
+   the text in the panel for a video example. Generation starts here.
+
+A **video** example's panel has a Prompt box (prefilled with the example's prompt) and a Reference
+image with "Upload your own image". While it runs, **Apply** sends what changed without a reset: a new
+image through the same upload + `setReferenceImage` path, a new prompt with `setPrompt`; both apply
+from the model's next block.
+
+### Switching and the output cover
+
+The output `<video>` keeps showing the last frame it received, and state updates from a run that is
+being reset keep saying `generating: true` until the model has processed the reset. So the moment a
+Start, a switch to another example, or Reset begins, the output is covered (the example's image,
+dimmed, with "Starting…") and the source is unpublished. The cover is armed only after the clean
+post-reset `state_update`; after that, the first `generation_started` or generating `state_update`
+lifts it, and the stage still waits for the output's next presented frame
+(`requestVideoFrameCallback`) before showing it. The previous example's output is never shown.
 
 No drag is sent on Start. The person drags on the output by hand. For a multi-point example the
 Drag panel offers **Try multi-point drag**, which replays the recorded `track.json` with
@@ -74,12 +95,13 @@ same, so the GPU is freed at once.
 | `app/page.tsx` | Header (title, API key field) and the client-only session below it |
 | `app/DragSession.tsx` | Provider, header (key, Connect, Start / Reset), example cards, the start sequence |
 | `app/lib/model.ts` | The only import of the model package (`@reactor-models/xmax-x2-1`) |
-| `app/lib/examples.ts`, `app/lib/drag.json` | Example list and types; media in `public/ex/drag/<id>/` |
+| `app/lib/examples.ts`, `app/lib/examples.json` | One example list, `kind`: `drag` or `video`; media in `public/ex/drag/<id>/` and `public/ex/video/<id>/` |
 | `app/lib/pointerFrames.ts` | `set_pointers` window helpers and the shared "last sent" store |
 | `app/components/DragReplay.tsx` | Replays a recorded track over the still on a 24 fps clock; Drag panel |
 | `app/components/useManualDrag.ts` | Turns pointer samples on the output into 24 fps windows |
 | `app/components/PointerOverlay.tsx` | Captures the drag on the output and draws the sent points |
-| `app/components/Stage.tsx`, `ImageSource.tsx` | Output view, source image inset and its still track |
+| `app/components/Stage.tsx` | Output view, the output cover, and the source inset |
+| `app/components/ImageSource.tsx`, `VideoSource.tsx` | Produce the `source` track from a still image or a looping clip |
 | `app/components/useSourcePublisher.ts` | The single owner of `publish("source", track)` |
 | `app/lib/reference.ts` | Reference upload (crops to multiples of 4 first) |
 | `app/lib/api-key.ts`, `app/lib/token.ts`, `app/components/ApiKeyBar.tsx` | Visitor's key, token cache, key field and "Get an API key" panel |
@@ -105,17 +127,18 @@ same, so the GPU is freed at once.
 
 ## Ideas the person may ask for
 
-- **Add an example**: put `reference.jpg` (the starting image, used as both source and reference), `thumb.jpg`
-  and `track.json` in
-  `public/ex/drag/<id>/` and add an entry to `app/lib/drag.json`.
+- **Add an example** to `app/lib/examples.json`: a drag example (`kind: "drag"`) needs
+  `reference.jpg` (the starting image, used as both source and reference), `thumb.jpg` and
+  `track.json` in `public/ex/drag/<id>/`; a video example (`kind: "video"`) needs `source.mp4`
+  (H.264, no audio, a few MB), `reference.jpg` and `thumb.jpg` in `public/ex/video/<id>/`.
 - **Record your own track**: log the manual drag's per-frame points (`useManualDrag`) from the
   moment it starts at 24 fps, with the still's size as `width`/`height`, and save them in the `track.json` format above.
 - **Multiple points by hand**: track several active pointers (multi-touch) in `PointerOverlay` and
   put one point per finger in each frame list (up to 8).
 - **Change how the trail is drawn**: `PointerOverlay.tsx` draws the last window (older frames
   fainter, newest as a ring).
-- **Let the visitor upload their own image**: feed its URL to `ImageSource` as the source
-  and the same `File` to `useReferenceUpload().apply` as the reference.
+- **Let the visitor bring their own source**: feed a picked image's URL to `ImageSource`, a clip's
+  to `VideoSource`, or the webcam's track to `onTrack`.
 - A different layout or visual style.
 
 ## Checking your work
@@ -125,5 +148,7 @@ same, so the GPU is freed at once.
   disabled until connected.
 - With a key: Connect (Connecting → Connected), Start an example, the output starts with no drag.
   Press and drag on the output to steer. On the anime example, Try multi-point drag replays the
-  recorded three-point drag; your own drag pauses it while held. Reset (the same button once the example runs) clears the model. No camera or
+  recorded three-point drag; your own drag pauses it while held. Reset (the same button once the example runs) clears the model. On the video example,
+  edit the prompt or upload an image and press Apply while it runs; switching examples while running
+  must never show the previous example's output. No camera or
   microphone is needed.
